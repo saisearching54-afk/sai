@@ -1,0 +1,6 @@
+{
+  "name": "FinTrack",
+  "description": "Premium mobile expense and income tracker with bank linking, smart categorization, and visual insights styled like Axio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
