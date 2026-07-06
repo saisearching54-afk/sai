@@ -221,6 +221,7 @@ class FinanceViewModel(private val repository: FinanceRepository) : ViewModel() 
     val isBackupDialogShown = MutableStateFlow(false)
     val isSMSPermissionDialogShown = MutableStateFlow(false)
     val isRescanningSMS = MutableStateFlow(false)
+    val isFetchingSMSAccount = MutableStateFlow<String?>(null)
 
     // Left Drawer Dialog States
     val isWeeklySummaryDialogShown = MutableStateFlow(false)
@@ -649,8 +650,8 @@ class FinanceViewModel(private val repository: FinanceRepository) : ViewModel() 
             if (_otpCode.value == "123456" || _otpCode.value == "422346") {
                 _otpError.value = null
                 _otpCode.value = ""
-                // Advanced to link account prompt
-                navigateTo(Screen.LinkAccountPrompt)
+                // Advanced directly to SMS Ingestion consent onboarding
+                navigateTo(Screen.SelectProvider)
             } else {
                 _otpError.value = "That code didn’t work. Please try again or request a new code."
             }
@@ -805,6 +806,56 @@ class FinanceViewModel(private val repository: FinanceRepository) : ViewModel() 
                 repository.deleteAccount(emailAccount)
             }
             showFeedback("Disconnected email $email and removed synced statements.")
+        }
+    }
+
+    fun enableSMSAutoIngestion() {
+        viewModelScope.launch {
+            isAnalyzingSMS.value = true
+            delay(2000)
+            isAnalyzingSMS.value = false
+            
+            // Seed bank accounts identified from SMS alerts
+            val sbiAccount = BankAccount("sbi", "State Bank of India", "XXXX 0938", 8400.00, isLinked = true, isHidden = false)
+            val hdfcAccount = BankAccount("hdfc", "HDFC Bank", "XXXX 8821", 48250.00, isLinked = true, isHidden = false)
+            val iciciAccount = BankAccount("icici", "ICICI Bank", "XXXX 4192", 12140.00, isLinked = true, isHidden = false)
+            
+            repository.insertAccounts(listOf(sbiAccount, hdfcAccount, iciciAccount))
+            
+            // Seed transactions identified/fetched from SMS alert patterns
+            val now = System.currentTimeMillis()
+            val dayMs = 24 * 60 * 60 * 1000L
+            val smsTransactions = listOf(
+                Transaction(merchantName = "Employer Salary SMS Alert", amount = 15000.0, timestamp = now - 1 * dayMs, type = "INCOME", category = "INCOME", accountSource = "sbi"),
+                Transaction(merchantName = "Swiggy Food SMS Alert", amount = 4800.0, timestamp = now - 2 * dayMs, type = "EXPENSE", category = "FOOD", accountSource = "hdfc"),
+                Transaction(merchantName = "Uber Ride SMS Alert", amount = 1200.0, timestamp = now - 3 * dayMs, type = "EXPENSE", category = "TRANSPORT", accountSource = "icici"),
+                Transaction(merchantName = "Netflix Streaming SMS Alert", amount = 650.0, timestamp = now - 4 * dayMs, type = "EXPENSE", category = "SUBSCRIPTIONS", accountSource = "sbi"),
+                Transaction(merchantName = "Refund SMS Alert", amount = 12000.0, timestamp = now - 5 * dayMs, type = "INCOME", category = "INCOME", accountSource = "hdfc"),
+                Transaction(merchantName = "Zara Fashion SMS Alert", amount = 2400.0, timestamp = now - 6 * dayMs, type = "EXPENSE", category = "SHOPPING", accountSource = "icici")
+            )
+            repository.insertTransactions(smsTransactions)
+            
+            isSMSPermissionDialogShown.value = false
+            isExpenseTrackingEnabled.value = true
+            showFeedback("SMS tracking enabled! Automatically identified SBI, HDFC, and ICICI accounts.")
+            // Redirect straight to Dashboard
+            _currentScreen.value = Screen.Dashboard
+        }
+    }
+
+    fun toggleAccountVisibilityFromSMS(bankId: String, isHidden: Boolean) {
+        viewModelScope.launch {
+            if (!isHidden) {
+                // Simulating fetching bank details from allowed SMS log history
+                isFetchingSMSAccount.value = bankId
+                delay(1200)
+                isFetchingSMSAccount.value = null
+            }
+            val account = bankAccounts.value.find { it.id == bankId }
+            if (account != null) {
+                repository.updateAccount(account.copy(isHidden = isHidden))
+                showFeedback(if (isHidden) "Account hidden" else "Account unhidden & transactions fetched from SMS!")
+            }
         }
     }
 

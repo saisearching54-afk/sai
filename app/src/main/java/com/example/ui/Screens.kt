@@ -117,25 +117,21 @@ fun MainNavigationContainer(
                     phone = targetScreen.phone,
                     onBack = { viewModel.navigateBack() }
                 )
-                is Screen.LinkAccountPrompt -> LinkAccountPromptScreen(
-                    onLinkAccount = { viewModel.navigateTo(Screen.SelectProvider) },
-                    onSkip = { viewModel.navigateTo(Screen.Dashboard) }
+                is Screen.LinkAccountPrompt -> SelectProviderScreen(
+                    viewModel = viewModel,
+                    onBack = { viewModel.navigateBack() }
                 )
                 is Screen.SelectProvider -> SelectProviderScreen(
                     viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() },
-                    onSelectBank = { bankId ->
-                        viewModel.navigateTo(Screen.ConsentAndPermissions(bankId))
-                    }
+                    onBack = { viewModel.navigateBack() }
                 )
-                is Screen.ConsentAndPermissions -> ConsentScreen(
-                    bankId = targetScreen.bankId,
-                    onBack = { viewModel.navigateBack() },
-                    onGrant = { viewModel.linkBank(targetScreen.bankId) }
-                )
-                is Screen.LinkingProgress -> LinkingProgressScreen(
+                is Screen.ConsentAndPermissions -> SelectProviderScreen(
                     viewModel = viewModel,
-                    bankId = targetScreen.bankId
+                    onBack = { viewModel.navigateBack() }
+                )
+                is Screen.LinkingProgress -> SelectProviderScreen(
+                    viewModel = viewModel,
+                    onBack = { viewModel.navigateBack() }
                 )
                 is Screen.Dashboard -> DashboardScreen(
                     viewModel = viewModel,
@@ -191,10 +187,7 @@ fun MainNavigationContainer(
                 )
                 is Screen.LinkAccounts -> SelectProviderScreen(
                     viewModel = viewModel,
-                    onBack = { viewModel.navigateBack() },
-                    onSelectBank = { bankId ->
-                        viewModel.navigateTo(Screen.ConsentAndPermissions(bankId))
-                    }
+                    onBack = { viewModel.navigateBack() }
                 )
             }
         }
@@ -1469,28 +1462,15 @@ fun LinkValueRow(
 @Composable
 fun SelectProviderScreen(
     viewModel: FinanceViewModel,
-    onBack: () -> Unit,
-    onSelectBank: (String) -> Unit
+    onBack: () -> Unit
 ) {
-    val searchQuery by viewModel.bankSearchQuery.collectAsState()
+    // --- BRAND NEW AUTOMATED SMS SCREEN ---
+    val isExpenseTrackingEnabled by viewModel.isExpenseTrackingEnabled.collectAsState()
+    val isAnalyzingSMS by viewModel.isAnalyzingSMS.collectAsState()
     val bankAccounts by viewModel.bankAccounts.collectAsState()
-    val linkedBankIds = remember(bankAccounts) { bankAccounts.filter { it.isLinked }.map { it.id } }
+    val isFetchingSMSAccount by viewModel.isFetchingSMSAccount.collectAsState()
 
-    var showAllBanksSearch by remember { mutableStateOf(false) }
-
-    val filteredBanks = remember(searchQuery, showAllBanksSearch) {
-        if (!showAllBanksSearch) {
-            viewModel.availableBanks
-        } else {
-            if (searchQuery.isEmpty()) {
-                viewModel.allIndianBanks
-            } else {
-                viewModel.allIndianBanks.filter {
-                    it.second.contains(searchQuery, ignoreCase = true)
-                }
-            }
-        }
-    }
+    val linkedAccounts = remember(bankAccounts) { bankAccounts.filter { it.isLinked } }
 
     Scaffold(
         topBar = {
@@ -1501,14 +1481,7 @@ fun SelectProviderScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = {
-                    if (showAllBanksSearch) {
-                        showAllBanksSearch = false
-                        viewModel.setBankSearchQuery("")
-                    } else {
-                        onBack()
-                    }
-                }) {
+                IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
@@ -1517,7 +1490,7 @@ fun SelectProviderScreen(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (showAllBanksSearch) "Search Other Provider" else "Link Account Provider",
+                    text = "SMS Financial Ingestion",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -1531,313 +1504,285 @@ fun SelectProviderScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 24.dp)
-                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Bank Search Bar (Only visible when user clicked Connect Other Provider)
-            if (showAllBanksSearch) {
-                TextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.setBankSearchQuery(it) },
-                    placeholder = {
-                        Text(
-                            "Search 200+ Indian banks...",
-                            color = TextMuted,
-                            fontSize = 15.sp
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search icon",
-                            tint = TextSecondary
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.setBankSearchQuery("") }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear",
-                                    tint = TextSecondary
-                                )
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = DarkSurface,
-                        unfocusedContainerColor = DarkSurface,
-                        focusedIndicatorColor = ElectricBlue,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    ),
+            Spacer(modifier = Modifier.height(4.dp))
+
+            if (!isExpenseTrackingEnabled) {
+                // Not Enabled: Show SMS Ingestion Promo & Activation
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 12.dp)
-                        .testTag("bank_search_input")
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = if (showAllBanksSearch) "ALL INDIAN BANKS & PROVIDERS" else "POPULAR BANKS IN INDIA",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextSecondary,
-                letterSpacing = 1.sp,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (!showAllBanksSearch) {
-                    // Display popular banks
-                    items(filteredBanks) { item ->
-                        val bank = item as BankAccount
-                        val isAlreadyLinked = linkedBankIds.contains(bank.id)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(DarkSurface)
-                                .border(
-                                    1.dp,
-                                    if (isAlreadyLinked) MintGreen.copy(alpha = 0.5f) else BorderColor,
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .clickable(enabled = !isAlreadyLinked) {
-                                    onSelectBank(bank.id)
-                                }
-                                .padding(16.dp)
-                                .testTag("bank_item_${bank.id}"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(
-                                            when (bank.id) {
-                                                "hdfc" -> Color(0xFF003366)
-                                                "icici" -> Color(0xFFF28500)
-                                                "sbi" -> Color(0xFF00A8E1)
-                                                else -> ElectricBlue.copy(alpha = 0.15f)
-                                            }
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = bank.name.take(2).uppercase(),
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column {
-                                    Text(
-                                        text = bank.name,
-                                        color = TextPrimary,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Automated transaction parsing logs",
-                                        color = TextSecondary,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-
-                            if (isAlreadyLinked) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MintGreen.copy(alpha = 0.15f))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Linked",
-                                            tint = MintGreen,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Linked",
-                                            color = MintGreen,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            } else {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    contentDescription = "Go Link",
-                                    tint = TextSecondary
-                                )
-                            }
-                        }
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(DarkSurface)
+                        .border(1.dp, BorderColor, RoundedCornerShape(20.dp))
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF7F3DEB).copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Email,
+                            contentDescription = "SMS Ingestion",
+                            tint = Color(0xFF7F3DEB),
+                            modifier = Modifier.size(32.dp)
+                        )
                     }
 
-                    // "Connect Other Provider" Button Row
-                    item {
-                        Row(
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Text(
+                        text = "Connect Accounts via SMS",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Grant automated read-only SMS parsing permission to securely detect and synchronize spends, income, and bank balances directly from device transaction alerts. Zero bank credentials or manual setup required.",
+                        fontSize = 14.sp,
+                        color = TextSecondary,
+                        lineHeight = 20.sp,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    if (isAnalyzingSMS) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFF7F3DEB), modifier = Modifier.size(28.dp))
+                            Text(
+                                text = "Analyzing incoming SMS alerts...",
+                                fontSize = 13.sp,
+                                color = TextSecondary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = { viewModel.enableSMSAutoIngestion() },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(ElectricBlue.copy(alpha = 0.12f))
-                                .border(
-                                    1.dp,
-                                    ElectricBlue.copy(alpha = 0.4f),
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .clickable {
-                                    showAllBanksSearch = true
-                                }
-                                .padding(16.dp)
-                                .testTag("connect_other_provider_btn"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .height(50.dp)
+                                .testTag("enable_sms_auto_ingestion_btn"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF7F3DEB),
+                                contentColor = Color.White
+                            )
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(ElectricBlue),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = "Search Other",
-                                        tint = DarkBg,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column {
-                                    Text(
-                                        text = "Connect Other Provider",
-                                        color = TextPrimary,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Search 200+ other Indian banks",
-                                        color = TextSecondary,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = "Search",
-                                tint = ElectricBlue
+                            Text(
+                                text = "Enable SMS Automated Tracking",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
-                } else {
-                    // Display all Indian banks (200+ list)
-                    items(filteredBanks) { item ->
-                        val pair = item as Pair<*, *>
-                        val bankId = pair.first as String
-                        val bankName = pair.second as String
-                        val isAlreadyLinked = linkedBankIds.contains(bankId)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(DarkSurface)
-                                .border(
-                                    1.dp,
-                                    if (isAlreadyLinked) MintGreen.copy(alpha = 0.5f) else BorderColor,
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .clickable(enabled = !isAlreadyLinked) {
-                                    onSelectBank(bankId)
-                                }
-                                .padding(16.dp)
-                                .testTag("bank_item_$bankId"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(ElectricBlue.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = bankName.take(2).uppercase(),
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column {
-                                    Text(
-                                        text = bankName,
-                                        color = TextPrimary,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Instant automated bank connector",
-                                        color = TextSecondary,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
+                }
 
-                            if (isAlreadyLinked) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MintGreen.copy(alpha = 0.15f))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                // Privacy / Security Banner
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(DarkSurface.copy(alpha = 0.5f))
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Lock",
+                        tint = MintGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "100% Client-Side. FinTrack parses bank SMS notifications locally on your device. Your sensitive data is encrypted and never uploaded to any cloud servers.",
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        lineHeight = 16.sp
+                    )
+                }
+            } else {
+                // Enabled: Show SMS Active Status & Identified Accounts
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MintGreen.copy(alpha = 0.08f))
+                        .border(1.dp, MintGreen.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Active",
+                        tint = MintGreen,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "SMS Automated Tracking is Active",
+                            color = MintGreen,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Spends & income are automatically fetched from device alerts.",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Text(
+                    text = "IDENTIFIED BANK ACCOUNTS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextSecondary,
+                    letterSpacing = 1.sp
+                )
+
+                if (linkedAccounts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(DarkSurface)
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No financial accounts identified yet from SMS logs.",
+                            color = TextMuted,
+                            fontSize = 13.sp
+                        )
+                    }
+                } else {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        linkedAccounts.forEach { account ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(DarkSurface)
+                                    .border(1.dp, BorderColor, RoundedCornerShape(16.dp))
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Linked",
-                                            tint = MintGreen,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                when (account.id) {
+                                                    "hdfc" -> Color(0xFF003366)
+                                                    "icici" -> Color(0xFFF28500)
+                                                    "sbi" -> Color(0xFF00A8E1)
+                                                    else -> Color(0xFF7F3DEB).copy(alpha = 0.15f)
+                                                }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         Text(
-                                            text = "Linked",
-                                            color = MintGreen,
+                                            text = account.name.take(2).uppercase(),
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(14.dp))
+
+                                    Column {
+                                        Text(
+                                            text = account.name,
+                                            color = TextPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Acc No: ${account.accountNo}",
+                                            color = TextMuted,
+                                            fontSize = 12.sp
+                                        )
+                                        if (isFetchingSMSAccount != account.id && !account.isHidden) {
+                                            Text(
+                                                text = "Balance: ₹${account.balance}",
+                                                color = TextSecondary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (isFetchingSMSAccount == account.id) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        CircularProgressIndicator(color = Color(0xFF7F3DEB), modifier = Modifier.size(14.dp))
+                                        Text(
+                                            text = "Fetching SMS...",
                                             fontSize = 11.sp,
+                                            color = TextMuted,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = if (account.isHidden) "Hidden" else "Visible",
+                                            color = if (account.isHidden) CoralRed else MintGreen,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Switch(
+                                            checked = !account.isHidden,
+                                            onCheckedChange = { checked ->
+                                                viewModel.toggleAccountVisibilityFromSMS(account.id, !checked)
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = MintGreen,
+                                                checkedTrackColor = MintGreen.copy(alpha = 0.3f),
+                                                uncheckedThumbColor = TextMuted,
+                                                uncheckedTrackColor = DarkBg
+                                            )
+                                        )
+                                    }
                                 }
-                            } else {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    contentDescription = "Go Link",
-                                    tint = TextSecondary
-                                )
                             }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 }
@@ -2125,13 +2070,18 @@ fun DashboardScreen(
     val isBackupDialogShown by viewModel.isBackupDialogShown.collectAsState()
     val isExpenseTrackingEnabled by viewModel.isExpenseTrackingEnabled.collectAsState()
 
-    val linkedAccounts = remember(bankAccounts) { bankAccounts.filter { it.isLinked } }
+    val linkedAccounts = remember(bankAccounts) { bankAccounts.filter { it.isLinked && !it.isHidden } }
     val totalBalance = remember(linkedAccounts) { linkedAccounts.sumOf { it.balance } }
 
-    val expenses = remember(transactions) { transactions.filter { it.type == "EXPENSE" } }
+    val visibleBankIds = remember(bankAccounts) { bankAccounts.filter { it.isLinked && !it.isHidden }.map { it.id } }
+    val visibleTransactions = remember(transactions, visibleBankIds) {
+        transactions.filter { visibleBankIds.contains(it.accountSource) }
+    }
+
+    val expenses = remember(visibleTransactions) { visibleTransactions.filter { it.type == "EXPENSE" } }
     val totalExpenses = remember(expenses) { expenses.sumOf { it.amount } }
 
-    val income = remember(transactions) { transactions.filter { it.type == "INCOME" } }
+    val income = remember(visibleTransactions) { visibleTransactions.filter { it.type == "INCOME" } }
     val totalIncome = remember(income) { income.sumOf { it.amount } }
 
     var isExpensesBreakdownDialogShown by remember { mutableStateOf(false) }
